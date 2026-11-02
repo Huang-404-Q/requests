@@ -2,6 +2,7 @@
 
 import collections
 import contextlib
+import email
 import io
 import json
 import os
@@ -29,7 +30,12 @@ from requests.compat import (
     is_urllib3_1,
     urlparse,
 )
-from requests.cookies import cookiejar_from_dict, morsel_to_cookie
+from requests.cookies import (
+    cookiejar_from_dict,
+    extract_cookies_to_jar,
+    get_cookie_header,
+    morsel_to_cookie,
+)
 from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError,
@@ -407,6 +413,21 @@ class TestRequests:
         s = requests.session()
         s.get(httpbin('cookies/set?foo="bar:baz"'))
         assert s.cookies["foo"] == '"bar:baz"'
+
+    def test_cookie_host_ignores_userinfo(self):
+        """URL userinfo must not become part of the host used for cookies."""
+        jar = requests.cookies.RequestsCookieJar()
+        jar.set("sent", "yes", domain="example.com", path="/")
+
+        request = requests.Request("GET", "http://user:pass@example.com/").prepare()
+        assert get_cookie_header(jar, request) == "sent=yes"
+
+        response = mock.Mock()
+        response._original_response.msg = email.message_from_string(
+            "Set-Cookie: stored=yes; Path=/\r\n"
+        )
+        extract_cookies_to_jar(jar, request, response)
+        assert jar.get("stored", domain="example.com") == "yes"
 
     def test_cookie_persists_via_api(self, httpbin):
         s = requests.session()

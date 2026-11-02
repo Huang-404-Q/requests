@@ -52,7 +52,8 @@ class MockRequest:
         return self.type
 
     def get_host(self) -> str:
-        return urlparse(self._r.url).netloc
+        # userinfo (user:password@) is not part of the host
+        return urlparse(self._r.url).netloc.rsplit("@", 1)[-1]
 
     def get_origin_req_host(self) -> str:
         return self.get_host()
@@ -61,7 +62,23 @@ class MockRequest:
         # Only return the response's URL if the user hadn't set the Host
         # header
         if not self._r.headers.get("Host"):
-            return self._r.url
+            # cookiejar derives the request host from this URL, so any
+            # userinfo (user:password@) must be stripped: it would otherwise
+            # be treated as part of the host and break cookie domain matching.
+            parsed = urlparse(self._r.url)
+            netloc = parsed.netloc.rsplit("@", 1)[-1]
+            if netloc == parsed.netloc:
+                return self._r.url
+            return urlunparse(
+                [
+                    parsed.scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                ]
+            )
         # If they did set it, retrieve it and reconstruct the expected domain
         host = to_native_string(self._r.headers["Host"], encoding="utf-8")
         parsed = urlparse(self._r.url)
